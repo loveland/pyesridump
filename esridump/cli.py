@@ -71,6 +71,11 @@ def _parse_args(args):
         type=int,
         default=30,
         help="HTTP timeout in seconds, default 30")
+    parser.add_argument("-r", "--retries",
+        type=int,
+        default=5,
+        dest='max_retries',
+        help="Number of times to retry failed requests, default 5")
 
     return parser.parse_args(args)
 
@@ -95,7 +100,8 @@ def main():
         request_geometry=args.request_geometry,
         proxy=args.proxy,
         timeout=args.timeout,
-        parent_logger=logger)
+        parent_logger=logger,
+        max_retries=args.max_retries)
 
     if args.jsonlines:
         for feature in dumper:

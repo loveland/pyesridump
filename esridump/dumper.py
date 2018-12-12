@@ -11,13 +11,14 @@ class EsriDumper(object):
     def __init__(self, url, parent_logger=None,
         extra_query_args=None, extra_headers=None,
         timeout=None, fields=None, request_geometry=True,
-        outSR=None, proxy=None, 
-        start_with=None, geometry_precision=None):
+        outSR=None, proxy=None,
+        start_with=None, geometry_precision=None, max_retries=5):
         self._layer_url = url
         self._query_params = extra_query_args or {}
         self._headers = extra_headers or {}
         self._http_timeout = timeout or 30
         self._fields = fields or None
+        self._max_retries = max_retries
         self._outSR = outSR or '4326'
         self._request_geometry = request_geometry
         self._proxy = proxy or None
@@ -31,7 +32,7 @@ class EsriDumper(object):
 
     def _request(self, method, url, **kwargs):
         try:
-
+            retries = kwargs.pop('retries', 0)
             if self._proxy:
                 url = self._proxy + url
 
@@ -39,11 +40,22 @@ class EsriDumper(object):
                 if params:
                     url += '?' + urlencode(params)
 
+            sample_url = url + '?' + urlencode(kwargs.get('params', ''))
             self._logger.debug("%s %s, args %s", method, url, kwargs.get('params') or kwargs.get('data'))
             return requests.request(method, url, timeout=self._http_timeout, **kwargs)
         except requests.exceptions.SSLError:
             self._logger.warning("Retrying %s without SSL verification", url)
             return requests.request(method, url, timeout=self._http_timeout, verify=False, **kwargs)
+        except (socket.timeout, requests.exceptions.ConnectionError, requests.exceptions.ReadTimeout) as e:
+            if retries < self._max_retries:
+                self._logger.warning("Retrying %s", url)
+                retries = retries + 1
+                kwargs['retries'] = retries
+                print(kwargs)
+                return self._request(method, url, **kwargs)
+            else:
+                self._logger.error("Max retries reached for %s", url)
+                raise
 
     def _build_url(self, url=None):
         return self._layer_url + url if url else self._layer_url
@@ -274,19 +286,24 @@ class EsriDumper(object):
         ]
 
     def _scrape_an_envelope(self, envelope, outSR, max_records):
-        features = self._fetch_bounded_features(envelope, outSR)
+        try:
+            features = self._fetch_bounded_features(envelope, outSR)
+            if len(features) >= max_records:
+                self._logger.info("Retrieved exactly the maximum record count. Splitting this box and retrieving the children.")
+                envelopes = self._split_envelope(envelope)
+                for child_envelope in envelopes:
+                    for feature in self._scrape_an_envelope(child_envelope, outSR, max_records):
+                        yield feature
+            else:
+                for feature in features:
+                    yield feature
 
-        if len(features) >= max_records:
-            self._logger.info("Retrieved exactly the maximum record count. Splitting this box and retrieving the children.")
-
+        except requests.exceptions.ReadTimeout:
+            self._logger.info("Envelope scrape timed out, splitting into pieces")
             envelopes = self._split_envelope(envelope)
-
             for child_envelope in envelopes:
                 for feature in self._scrape_an_envelope(child_envelope, outSR, max_records):
                     yield feature
-        else:
-            for feature in features:
-                yield feature
 
     def __iter__(self):
         query_fields = self._fields
@@ -332,7 +349,7 @@ class EsriDumper(object):
 
             use_oids = True
             oid_field_name = self._find_oid_field_name(metadata)
-        
+
             if not oid_field_name:
                 raise EsriDownloadError("Could not find object ID field name for deduplication")
 
@@ -393,7 +410,7 @@ class EsriDumper(object):
                         })
                         page_args.append(query_args)
                     self._logger.info("Built %s requests using OID enumeration method", len(page_args))
-                except EsriDownloadError:
+                except (EsriDownloadError, requests.exceptions.ReadTimeout, socket.timeout):
                     self._logger.info("Falling back to geo queries")
                     # Use geospatial queries when none of the ID-based methods will work
                     bounds = metadata['extent']

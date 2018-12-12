@@ -270,9 +270,54 @@ class TestEsriDownload(unittest.TestCase):
             body=socket.timeout(),
         )
 
-        dump = EsriDumper(self.fake_url)
+        dump = EsriDumper(self.fake_url, max_retries=0)
         with self.assertRaisesRegexp(EsriDownloadError, "Timeout when connecting to URL"):
             list(dump)
+
+    def test_object_id_retries(self):
+        self.add_fixture_response(
+            '.*/\?f=json.*',
+            'us-ca-carson/us-ca-carson-metadata.json',
+            method='GET',
+        )
+        self.add_fixture_response(
+            '.*returnCountOnly=true.*',
+            'us-ca-carson/us-ca-carson-count-only.json',
+            method='GET',
+        )
+        self.add_fixture_response(
+            '.*returnIdsOnly=true.*',
+            'us-ca-carson/us-ca-carson-ids-only.json',
+            method='GET',
+        )
+
+        # Should retry after a timeout
+        import socket
+        self.responses.add(
+            method='POST',
+            url=re.compile('.*query.*'),
+            body=socket.timeout(),
+        )
+
+        # Should retry after a ConnectionError
+        import requests
+        self.responses.add(
+            method='POST',
+            url=re.compile('.*query.*'),
+            body=requests.exceptions.ConnectionError(),
+        )
+
+        # Second request should pass
+        self.add_fixture_response(
+            '.*query.*',
+            'us-ca-carson/us-ca-carson-0.json',
+            method='POST',
+        )
+
+        dump = EsriDumper(self.fake_url)
+        data = list(dump)
+
+        self.assertEqual(6, len(data))
 
     def test_handles_value_error(self):
         self.add_fixture_response(
@@ -369,6 +414,64 @@ class TestEsriDownload(unittest.TestCase):
         )
 
         dump = EsriDumper(self.fake_url)
+        data = list(dump)
+
+        # Note that this count is entirely fake because of the deduping happening
+        # This test is only designed to make sure we're splitting into smaller
+        # bounding boxes.
+
+        self.assertEqual(2, len(data))
+
+
+    def test_geo_queries_when_oid_enumeration_times_out(self):
+        print ("Test OID queries") 
+        self.add_fixture_response(
+            '.*/\?f=json.*',
+            'us-il-cook/metadata.json',
+            method='GET',
+        )
+        self.add_fixture_response(
+            '.*returnCountOnly=true.*',
+            'us-il-cook/count-only.json',
+            method='GET',
+        )
+
+        # Dang, there are too many OIDs to return. The request times out.
+        import socket
+        self.responses.add(
+            method='GET',
+            url=re.compile('.*returnIdsOnly=true.*'),
+            body=socket.timeout(),
+        )
+
+        # We expect to see geometry queries now. 
+        self.add_fixture_response(
+            '.*geometry=.*',
+            'us-il-cook/page-full.json',
+            method='GET',
+        )
+        self.add_fixture_response(
+            '.*geometry=.*',
+            'us-il-cook/page-partial.json',
+            method='GET',
+        )
+        self.add_fixture_response(
+            '.*geometry=.*',
+            'us-il-cook/page-partial.json',
+            method='GET',
+        )
+        self.add_fixture_response(
+            '.*geometry=.*',
+            'us-il-cook/page-partial.json',
+            method='GET',
+        )
+        self.add_fixture_response(
+            '.*geometry=.*',
+            'us-il-cook/page-partial.json',
+            method='GET',
+        )
+
+        dump = EsriDumper(self.fake_url, max_retries=0)
         data = list(dump)
 
         # Note that this count is entirely fake because of the deduping happening
