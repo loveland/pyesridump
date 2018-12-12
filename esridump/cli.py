@@ -76,10 +76,10 @@ def _parse_args(args):
         default=5,
         dest='max_retries',
         help="Number of times to retry failed requests, default 5")
-    parser.add_argument("-s", "--start",
+    parser.add_argument("-o", "--offset",
         type=int,
         default=0,
-        dest='start_with',
+        dest='offset',
         help="Start after this offset")
 
     return parser.parse_args(args)
@@ -107,7 +107,7 @@ def main():
         timeout=args.timeout,
         parent_logger=logger,
         max_retries=args.max_retries,
-        start_with=args.start_with)
+        offset=args.offset)
 
     if args.jsonlines:
         for feature in dumper:
