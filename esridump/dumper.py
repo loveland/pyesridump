@@ -54,8 +54,8 @@ class EsriDumper(object):
                 print(kwargs)
                 return self._request(method, url, **kwargs)
             else:
-                self._logger.warning("Max retries reached for %s", url)
-                raise # EsriDownloadError("Timeout when connecting to URL", e)
+                self._logger.error("Max retries reached for %s", url)
+                raise
 
     def _build_url(self, url=None):
         return self._layer_url + url if url else self._layer_url
@@ -285,13 +285,6 @@ class EsriDumper(object):
             ),
         ]
 
-    def _scrape_child_envelopes(self, envelope, outSR, max_records):
-        envelopes = self._split_envelope(envelope)
-
-        for child_envelope in envelopes:
-            for feature in self._scrape_an_envelope(child_envelope, outSR, max_records):
-                yield feature
-
     def _scrape_an_envelope(self, envelope, outSR, max_records):
         try:
             features = self._fetch_bounded_features(envelope, outSR)
@@ -306,7 +299,7 @@ class EsriDumper(object):
                     yield feature
 
         except requests.exceptions.ReadTimeout:
-            self._logger.info("Envelope scrape failed, splitting into pieces")
+            self._logger.info("Envelope scrape timed out, splitting into pieces")
             envelopes = self._split_envelope(envelope)
             for child_envelope in envelopes:
                 for feature in self._scrape_an_envelope(child_envelope, outSR, max_records):
