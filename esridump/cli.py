@@ -76,6 +76,11 @@ def _parse_args(args):
         default=5,
         dest='max_retries',
         help="Number of times to retry failed requests, default 5")
+    parser.add_argument("-s", "--start",
+        type=int,
+        default=0,
+        dest='start_with',
+        help="Start scraping at this record")
 
     return parser.parse_args(args)
 
@@ -101,7 +106,8 @@ def main():
         proxy=args.proxy,
         timeout=args.timeout,
         parent_logger=logger,
-        max_retries=args.max_retries)
+        max_retries=args.max_retries,
+        start_with=args.start_with)
 
     if args.jsonlines:
         for feature in dumper:
