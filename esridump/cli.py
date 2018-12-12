@@ -80,7 +80,7 @@ def _parse_args(args):
         type=int,
         default=0,
         dest='start_with',
-        help="Start scraping at this record")
+        help="Start after this offset")
 
     return parser.parse_args(args)
 
